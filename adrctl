@@ -1,0 +1,195 @@
+#!/bin/sh -eu
+
+# adrctl - CLI helper for markdown ADR (MADR) documents
+# This was meant to help maintain and organize ADR docs inside a local folder
+# (ideally inside a git repo). adrctl should be simple, minimal and intuitive
+# to use.
+#
+# Based on MADR spec at https://adr.github.io/madr (https://github.com/adr/madr)
+
+# ------------------------------------------------------------------------------
+# Config vars
+# ------------------------------------------------------------------------------
+
+# Set to anything to enable debug mode
+ADRCTL_DEBUG=${ADRCTL_DEBUG:-}
+
+# Project folder (e.g. generally your project git root folder)
+ADRCTL_ROOT=${ADRCTL_ROOT:-"$(pwd)"}
+# Path inside the project where ADR docs are stored (standard is 'docs/decisions')
+ADRCTL_ADR_FOLDER=${ADRCTL_ADR_FOLDER:-"docs/decisions"}
+
+# ------------------------------------------------------------------------------
+# Internal constants
+# ------------------------------------------------------------------------------
+
+__ADR_FOLDER_PATH="$ADRCTL_ROOT/$ADRCTL_ADR_FOLDER"
+
+__ADR_TEMPLATE_SHORT="# {{TITLE}}
+
+## Context and Problem Statement
+
+{Describe the context and problem statement, e.g., in free form using two to three sentences or in the form of an illustrative story.
+ You may want to articulate the problem in form of a question and add links to collaboration boards or issue management systems.}
+
+## Considered Options
+
+* {title of option 1}
+* {title of option 2}
+* {title of option 3}
+* … <!-- numbers of options can vary -->
+
+## Decision Outcome
+
+Chosen option: \"{title of option 1}\", because
+{justification. e.g., only option, which meets k.o. criterion decision driver | which resolves force {force} | … | comes out best (see below)}.
+"
+
+# ------------------------------------------------------------------------------
+# Logging utils
+# ------------------------------------------------------------------------------
+
+log() {
+    printf '%s\n' "$1"
+}
+
+log_debug() {
+    [ -z "$ADRCTL_DEBUG" ] && return
+    printf '%s\n' "$1"
+}
+
+log_green() {
+    printf '\033[32m%s\033[39m\n' "$1"
+}
+
+log_red() {
+    printf '\033[31m%s\033[39m\n' "$1"
+}
+
+# ------------------------------------------------------------------------------
+# Helper functions
+# ------------------------------------------------------------------------------
+
+show_help() {
+    cat <<EOF
+adrctl - ADR docs helper
+
+Available commands:
+    init                        Setup current project for new ADR docs
+    new <title>                 Create new ADR doc with title
+    list                        List all ADRs
+
+    help|--help|-h              Show this help message and exit with error
+EOF
+}
+
+__has_initialized() {
+    [ ! -d "$__ADR_FOLDER_PATH" ] && return 1
+    return 0
+}
+
+# Setup project folder with ADR basic structure
+adrctl_init() {
+    if __has_initialized; then
+        log "-- All set"
+        return
+    fi
+
+    log "-- Initializing ADR folder"
+    mkdir -p "$__ADR_FOLDER_PATH"
+}
+
+__get_all_adrs() {
+    echo "$__ADR_FOLDER_PATH"/*.md | grep -E "[0-9]{4}-(.*?)"
+}
+
+__calculate_next_adr_id() {
+    last=0
+    # TODO: better implementation without loop
+    for adr_f in $(__get_all_adrs); do
+        id="$(basename "$adr_f" | cut -d- -f1)"
+        # note: using float to prevent octal prefix...
+        # see https://stackoverflow.com/questions/8078167/printf-in-bash-09-and-08-are-invalid-numbers-07-and-06-are-fine
+        trimmed_id="$(printf '%f' "$id" | cut -d. -f1)"
+        if [ "$trimmed_id" -ge "$last" ]; then
+            last="$trimmed_id"
+        fi
+    done
+    echo "$(( last + 1 ))"
+}
+
+# Create new ADR file with title
+adrctl_new() {
+    if ! __has_initialized; then
+        log_red 'ERROR: project not initialized. Run `adrctl init`'
+        return 1
+    fi
+
+    doc_name="$1"
+
+    adr_id="$(__calculate_next_adr_id)"
+    adr_padded_id="$(printf '%4s' "$adr_id" | sed 's# #0#g')"
+
+    file_title_lowercase="$(echo "$doc_name" | tr '[:upper:]' '[:lower:]')"
+    file_title_dashed="$(echo "$file_title_lowercase" | sed 's# #-#g')"
+
+    parsed_template="$(echo "$__ADR_TEMPLATE_SHORT" | sed "s#{{TITLE}}#$doc_name#")"
+    adr_file_name="$__ADR_FOLDER_PATH/$adr_padded_id-$file_title_dashed.md"
+    adr_file_name_pretty="$(basename "$adr_file_name")"
+
+    log "-- Creating new ADR: $adr_file_name_pretty"
+    if [ -f "$adr_file_name" ]; then
+        log_red "ERROR: ADR named '$adr_file_name_pretty' already exists."
+        return 1
+    fi
+    echo "$parsed_template" > "$adr_file_name"
+}
+
+# List all ADR documents found for the project
+adrctl_list() {
+    if ! __has_initialized; then
+        log_red 'ERROR: project not initialized. Run `adrctl init`'
+        return 1
+    fi
+
+    for file in $(__get_all_adrs); do
+        [ -e "$file" ] || break  # no files found
+        basename "$file"
+    done
+}
+
+# ------------------------------------------------------------------------------
+# Main cli logic
+# ------------------------------------------------------------------------------
+
+cmd="${1:-}"
+if [ -z "$cmd" ]; then
+    show_help
+    exit 1
+fi
+shift
+
+case "$cmd" in
+    init)
+        adrctl_init
+        exit $?
+    ;;
+    new)
+        doc_name="${*}"
+        adrctl_new "$doc_name"
+        exit $?
+    ;;
+    list)
+        adrctl_list
+        exit $?
+    ;;
+    help|--help|-h)
+        show_help
+        exit 1
+    ;;
+    *)
+        log_red "ERROR: invalid command: $cmd"
+        show_help
+        exit 1
+    ;;
+esac
