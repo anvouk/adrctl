@@ -9,11 +9,10 @@ Based on [MADR format spec](https://adr.github.io/madr/)
 ## Usage
 
 1. Open shell in your project
-2. Run `adrctl init`
-3. Create new ADR `adrctl new My awesome shining new feature`
+2. Create new ADR `adrctl new My awesome shining new feature`
 
 This will create the file `0001-my-awesome-shining-new-feature.md` with the short
-template inside.
+template inside the folder `docs/decisions`.
 
 You can list ADRs with `adrctl list`
 
